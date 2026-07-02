@@ -1,0 +1,10 @@
+/bin/mihomo
+/bin/*.gz
+/config/config.yaml
+/config/subscription.url
+/config/subscription.raw.*
+/config/cache.db
+/config/GeoSite.dat
+/config/ruleset/
+/logs/*.log
+/mihomo.pid
