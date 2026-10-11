@@ -53,7 +53,7 @@ fi
 			root := filepath.Join(dir, "custom installation")
 			log := filepath.Join(dir, "curl.log")
 			invoke := func(sum string) ([]byte, error) {
-				command := exec.Command("bash", "../../install.sh", "--dir", root, "--version", "v1.0.0", "--skip-core", "--no-link")
+				command := exec.Command("bash", "../../install.sh", "--yes", "--dir", root, "--version", "v1.0.0", "--skip-core", "--no-link")
 				command.Env = append(os.Environ(), "PATH="+fakeBin+":"+os.Getenv("PATH"), "INSTALL_TEST_LOG="+log, "INSTALL_TEST_CHECKSUM="+sum, "INSTALL_TEST_ASSET="+assetArch, "INSTALL_TEST_PAYLOAD="+payload)
 				return command.CombinedOutput()
 			}
@@ -83,5 +83,119 @@ fi
 				t.Fatal("installer left temporary files")
 			}
 		})
+	}
+}
+
+func TestInstallerWizardConsentAndBashrcInitialization(t *testing.T) {
+	dir := t.TempDir()
+	payload := filepath.Join(dir, "payload")
+	if err := os.WriteFile(payload, []byte("#!/usr/bin/env bash\necho 'clashctl v1.0.1'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	bashrc := filepath.Join(dir, "bashrc")
+	original := "alias keep_me='echo user configuration'\n"
+	if err := os.WriteFile(bashrc, []byte(original), 0640); err != nil {
+		t.Fatal(err)
+	}
+	defaultRoot := filepath.Join(dir, "default install")
+	selectedRoot := filepath.Join(dir, "custom ' $literal install")
+	invoke := func(root, answers string, extra ...string) ([]byte, error) {
+		args := []string{"../../install.sh", "--interactive", "--binary", payload, "--dir", root, "--skip-core", "--no-link", "--bashrc", bashrc}
+		args = append(args, extra...)
+		command := exec.Command("bash", args...)
+		command.Stdin = strings.NewReader(answers)
+		return command.CombinedOutput()
+	}
+	output, err := invoke(defaultRoot, selectedRoot+"\nY\ny\nn\n")
+	if err != nil {
+		t.Fatalf("wizard failed: %v\n%s", err, output)
+	}
+	if _, err = os.Stat(filepath.Join(selectedRoot, "bin", "clashctl")); err != nil {
+		t.Fatal("did not use the selected installation directory")
+	}
+	if _, err = os.Stat(defaultRoot); !os.IsNotExist(err) {
+		t.Fatal("created unused default directory")
+	}
+	content, err := os.ReadFile(bashrc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), original) {
+		t.Fatal("discarded user bashrc configuration")
+	}
+	info, _ := os.Stat(bashrc)
+	if info.Mode().Perm() != 0640 {
+		t.Fatal("changed bashrc permissions")
+	}
+	command := exec.Command("bash", "-c", `source "$1"; printf '%s' "$PATH"`, "bash", bashrc)
+	path, err := command.Output()
+	if err != nil || !strings.HasPrefix(string(path), selectedRoot+"/bin:") {
+		t.Fatalf("generated PATH is not shell-safe: %q (%v)", path, err)
+	}
+	output, err = invoke(selectedRoot, "\n\ny\nn\n")
+	if err != nil {
+		t.Fatalf("repeat install failed: %v\n%s", err, output)
+	}
+	content, _ = os.ReadFile(bashrc)
+	if strings.Count(string(content), "# >>> clashctl initialize >>>") != 1 {
+		t.Fatal("duplicated bashrc initialization")
+	}
+	if strings.Count(string(content), original) != 1 {
+		t.Fatal("duplicated or removed user configuration")
+	}
+}
+
+func TestInstallerCanCancelOrDeclineShellChanges(t *testing.T) {
+	dir := t.TempDir()
+	payload := filepath.Join(dir, "payload")
+	bashrc := filepath.Join(dir, "bashrc")
+	if err := os.WriteFile(payload, []byte("#!/usr/bin/env bash\necho 'clashctl v1.0.1'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte("# User configuration\n")
+	if err := os.WriteFile(bashrc, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	invoke := func(root, answers string) ([]byte, error) {
+		command := exec.Command("bash", "../../install.sh", "--interactive", "--binary", payload, "--dir", root, "--skip-core", "--no-link", "--bashrc", bashrc)
+		command.Stdin = strings.NewReader(answers)
+		return command.CombinedOutput()
+	}
+	cancelled := filepath.Join(dir, "cancelled")
+	output, err := invoke(cancelled, "\nn\n")
+	if err != nil {
+		t.Fatalf("cancel failed: %v\n%s", err, output)
+	}
+	if _, err = os.Stat(cancelled); !os.IsNotExist(err) {
+		t.Fatal("cancelled installation created files")
+	}
+	installed := filepath.Join(dir, "installed")
+	output, err = invoke(installed, "\n\nn\nn\n")
+	if err != nil {
+		t.Fatalf("install failed: %v\n%s", err, output)
+	}
+	content, _ := os.ReadFile(bashrc)
+	if string(content) != string(original) {
+		t.Fatal("modified bashrc without consent")
+	}
+	command := exec.Command("bash", "../../install.sh", "--yes", "--binary", payload, "--dir", installed, "--skip-core", "--no-link", "--bashrc", bashrc)
+	if output, err = command.CombinedOutput(); err != nil {
+		t.Fatalf("unattended install failed: %v\n%s", err, output)
+	}
+	content, _ = os.ReadFile(bashrc)
+	if string(content) != string(original) {
+		t.Fatal("unattended installation silently initialized bashrc")
+	}
+	if err = os.WriteFile(bashrc, []byte("# >>> clashctl initialize >>>\n# incomplete user block\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(bashrc)
+	command = exec.Command("bash", "../../install.sh", "--yes", "--init-bashrc", "--binary", payload, "--dir", installed, "--skip-core", "--no-link", "--bashrc", bashrc)
+	if output, err = command.CombinedOutput(); err == nil {
+		t.Fatal("accepted malformed managed bashrc block")
+	}
+	after, _ := os.ReadFile(bashrc)
+	if string(before) != string(after) {
+		t.Fatal("overwrote malformed bashrc")
 	}
 }

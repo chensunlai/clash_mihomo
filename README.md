@@ -7,24 +7,26 @@ Linux 下的 mihomo TUI 管理工具，支持多订阅、多实例和固定节�
 ## 安装
 
 ```bash
-curl -fsSL https://github.com/chensunlai/clash_mihomo/releases/latest/download/install.sh -o /tmp/clashctl-install.sh
-bash /tmp/clashctl-install.sh
-clashctl
+bash <(curl -fsSL https://github.com/chensunlai/clash_mihomo/releases/latest/download/install.sh)
 ```
 
-默认目录为 `~/.local/clash_mihomo`，自动选择 x86_64 / ARM64 二进制并安装 mihomo 核心。指定目录或版本：
+安装向导会依次询问安装目录（默认 `~/.local/clash_mihomo`）、确认安装、是否写入 `~/.bashrc`，以及是否立即打开 TUI。自动选择 x86_64 / ARM64 二进制并安装 mihomo 核心。也支持 `curl -fsSL <安装脚本链接> | bash`。
+
+选择写入 bashrc 后，新终端直接运行 `clashctl`；当前终端可执行 `source ~/.bashrc`。选择不写入时，使用 `<安装目录>/bin/clashctl`。
+
+预设目录或版本后继续交互安装：
 
 ```bash
-bash /tmp/clashctl-install.sh --dir "$HOME/.local/clash_mihomo" --version v1.0.0
+bash <(curl -fsSL https://github.com/chensunlai/clash_mihomo/releases/latest/download/install.sh) --dir "$HOME/.local/clash_mihomo" --version v1.0.1
 ```
 
-其他选项：`--skip-core` 暂不安装核心，`--no-link` 不创建命令链接。若找不到 `clashctl`，运行 `<安装目录>/bin/clashctl`，或将 `~/.local/bin` 加入 PATH：
+自动化安装可用 `--yes` 跳过提问；是否修改 bashrc 需显式指定：
 
 ```bash
-export PATH="$HOME/.local/bin:$PATH"
+bash <(curl -fsSL https://github.com/chensunlai/clash_mihomo/releases/latest/download/install.sh) --yes --dir "$HOME/.local/clash_mihomo" --init-bashrc
 ```
 
-重新执行安装脚本即可更新管理器，已有订阅和实例保留。指定目录安装后直接运行其中的二进制即可，也可用 `clashctl --home DIR` 管理另一套配置。
+其他选项：`--skip-core` 暂不安装核心，`--no-init-bashrc` 不修改 bashrc，`--no-link` 不创建命令链接。重新安装可以更新管理器，已有订阅和实例保留，bashrc 中的初始化区块不会重复。也可用 `clashctl --home DIR` 管理另一套配置。
 
 ## 订阅与实例
 
