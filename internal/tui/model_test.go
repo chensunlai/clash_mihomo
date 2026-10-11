@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -38,6 +39,8 @@ func press(m Model, key string) (Model, tea.Cmd) {
 		msg.Type = tea.KeyDown
 	case "ctrl+s":
 		msg.Type = tea.KeyCtrlS
+	case "ctrl+a":
+		msg.Type = tea.KeyCtrlA
 	case " ":
 		msg.Type = tea.KeySpace
 	}
@@ -103,6 +106,7 @@ func TestFlatWizardSupportsMultipleFilesAndCreatesFixedInstance(t *testing.T) {
 	m, _ = press(m, "f")
 	m.form.fields[0].input.SetValue("fixed")
 	m, _ = press(m, "ctrl+s")
+	m, _ = press(m, "l")
 	if m.form == nil || m.form.kind != "flat-file" {
 		t.Fatal("source file form unavailable")
 	}
@@ -118,8 +122,13 @@ func TestFlatWizardSupportsMultipleFilesAndCreatesFixedInstance(t *testing.T) {
 	if m.wizard == nil || len(m.wizard.selections) != 1 {
 		t.Fatal("selection not added")
 	}
-	m, _ = press(m, "a")
-	m.form.fields[0].input.SetValue(path)
+	m, _ = press(m, "l")
+	secondPath := filepath.Join(t.TempDir(), "other.yaml")
+	content, _ := os.ReadFile(path)
+	if err := os.WriteFile(secondPath, content, 0600); err != nil {
+		t.Fatal(err)
+	}
+	m.form.fields[0].input.SetValue(secondPath)
 	m, cmd = press(m, "ctrl+s")
 	updated, _ = m.Update(cmd())
 	m = updated.(Model)
@@ -145,6 +154,119 @@ func TestFlatWizardSupportsMultipleFilesAndCreatesFixedInstance(t *testing.T) {
 	m, _ = press(m, "enter")
 	if m.logs == nil || !strings.Contains(m.logs.View(), "s2") {
 		t.Fatal("complete mapping viewer unavailable")
+	}
+}
+func TestFlatWizardSelectsExistingSubscriptionsAndFreezesNodes(t *testing.T) {
+	m := modelForTest(t)
+	var requests atomic.Int32
+	var changed atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		names := []string{"One", "Shared"}
+		if r.URL.Path == "/b" {
+			names = []string{"Shared", "Other"}
+		} else if changed.Load() {
+			names = []string{"Replacement"}
+		}
+		fmt.Fprintln(w, "proxies:")
+		for _, name := range names {
+			fmt.Fprintf(w, "  - {name: %s, type: socks5, server: 127.0.0.1, port: 1080}\n", name)
+		}
+	}))
+	defer server.Close()
+	a, err := m.manager.AddSubscription("Team1", server.URL+"/a?token=hidden")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := m.manager.AddSubscription("Team2", server.URL+"/b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.status.Subscriptions, _ = m.manager.Subscriptions()
+	complete := func(cmd tea.Cmd) {
+		t.Helper()
+		if cmd == nil {
+			t.Fatal("expected operation")
+		}
+		updated, _ := m.Update(cmd())
+		m = updated.(Model)
+		if m.failed {
+			t.Fatal(m.message)
+		}
+	}
+	m, _ = press(m, "f")
+	m.form.fields[0].input.SetValue("fixed")
+	m, _ = press(m, "ctrl+s")
+	if m.form != nil || m.picker == nil || m.picker.kind != "flat-subscriptions" || len(m.picker.items) != 2 {
+		t.Fatal("flat wizard did not offer existing subscriptions")
+	}
+	if strings.Contains(m.View(), "token=hidden") {
+		t.Fatal("subscription picker exposed URL")
+	}
+	m, cmd := press(m, "enter")
+	complete(cmd)
+	if m.picker == nil || m.picker.kind != "flat-nodes" || len(m.picker.items) != 2 {
+		t.Fatal("subscription node picker unavailable")
+	}
+	m, _ = press(m, " ")
+	m, _ = press(m, "enter")
+	m, _ = press(m, "a")
+	m, _ = press(m, "down")
+	m, cmd = press(m, "enter")
+	complete(cmd)
+	m.picker.filter.SetValue("Shared")
+	m, _ = press(m, " ")
+	m.picker.filter.SetValue("Other")
+	m, _ = press(m, " ")
+	m, _ = press(m, "enter")
+	if len(m.wizard.selections) != 2 || len(m.wizard.selections[1].Names) != 2 {
+		t.Fatal("lost selections across subscriptions or filters")
+	}
+	if view := m.View(); !strings.Contains(view, "Team1") || !strings.Contains(view, "Team2") {
+		t.Fatal("port preview did not identify source subscriptions")
+	}
+	m, _ = press(m, "a")
+	m, cmd = press(m, "enter")
+	complete(cmd)
+	if !m.picker.selected["One"] {
+		t.Fatal("revisiting subscription lost its selection")
+	}
+	m, _ = press(m, "ctrl+a")
+	m, _ = press(m, "enter")
+	if len(m.wizard.selections) != 2 || len(m.wizard.selections[0].Names) != 2 {
+		t.Fatal("revisiting subscription duplicated its nodes")
+	}
+	// Let the manager find a free contiguous range on the test host.
+	m.wizard.options.Port = 0
+	m, cmd = press(m, "enter")
+	complete(cmd)
+	i, err := m.manager.Instance("fixed")
+	if err != nil || i.Kind != "flat" || i.Subscription != "" || len(i.Entries) != 4 {
+		t.Fatalf("invalid flat snapshot: %+v (%v)", i, err)
+	}
+	for index, entry := range i.Entries {
+		if entry.Port != i.Entries[0].Port+index {
+			t.Fatal("node ports were not consecutive")
+		}
+	}
+	if i.Entries[1].Node == i.Entries[2].Node {
+		t.Fatal("same node name from different subscriptions collided")
+	}
+	if requests.Load() != 2 {
+		t.Fatal("flat selection unnecessarily refreshed subscriptions")
+	}
+	path := filepath.Join(m.manager.Store.InstanceDir(i.ID), "config.yaml")
+	before, _ := os.ReadFile(path)
+	changed.Store(true)
+	if err = m.manager.RefreshSubscription(a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = m.manager.DeleteSubscription(b.ID); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.ReadFile(path)
+	if string(before) != string(after) {
+		t.Fatal("subscription refresh/deletion changed fixed snapshot")
 	}
 }
 func TestScrollingAndNarrowTerminal(t *testing.T) {
@@ -173,6 +295,13 @@ func TestCancelledWizardIgnoresLateResult(t *testing.T) {
 	m = updated.(Model)
 	if m.picker != nil {
 		t.Fatal("late node result opened a cancelled wizard")
+	}
+	oldWizard := &flatWizard{}
+	m.wizard = &flatWizard{labels: map[string]string{}}
+	updated, _ = m.Update(operationMsg{label: "load", value: localResult{path: "old", nodes: []manager.Node{{"name": "One", "type": "http"}}, wizard: oldWizard}})
+	m = updated.(Model)
+	if m.picker != nil {
+		t.Fatal("late node result from a cancelled wizard replaced a new wizard")
 	}
 }
 

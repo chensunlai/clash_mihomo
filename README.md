@@ -17,7 +17,7 @@ bash <(curl -fsSL https://github.com/chensunlai/clash_mihomo/releases/latest/dow
 预设目录或版本后继续交互安装：
 
 ```bash
-bash <(curl -fsSL https://github.com/chensunlai/clash_mihomo/releases/latest/download/install.sh) --dir "$HOME/.local/clash_mihomo" --version v1.0.1
+bash <(curl -fsSL https://github.com/chensunlai/clash_mihomo/releases/latest/download/install.sh) --dir "$HOME/.local/clash_mihomo" --version v1.0.2
 ```
 
 自动化安装可用 `--yes` 跳过提问；是否修改 bashrc 需显式指定：
@@ -55,15 +55,15 @@ bash <(curl -fsSL https://github.com/chensunlai/clash_mihomo/releases/latest/dow
 ## 固定节点平铺
 
 1. 按 `f` 填写名称、起始端口、监听地址和后台方式。
-2. 添加本地 YAML 文件，用 Space 勾选节点，Ctrl+A 全选筛选结果，Enter 确认。按 `a` 继续添加其他文件。
+2. 从已添加的订阅列表中选择订阅，用 Space 勾选节点，Ctrl+A 全选筛选结果，Enter 确认。按 `a` 继续选择其他订阅的节点；再次选择同一订阅可以修改勾选，不会重复加入。按 `l` 也可导入本地 YAML 文件。
 3. 查看端口预览，按 Enter 创建，再按 `s` 启动。
 
-例如从两个文件依次选中三个节点，起始端口为 `20000`：
+例如从两个订阅依次选中三个节点，起始端口为 `20000`：
 
 ```text
-127.0.0.1:20000 → 文件 A / 节点 X
-127.0.0.1:20001 → 文件 A / 节点 Y
-127.0.0.1:20002 → 文件 B / 节点 Z
+127.0.0.1:20000 → 订阅 A / 节点 X
+127.0.0.1:20001 → 订阅 A / 节点 Y
+127.0.0.1:20002 → 订阅 B / 节点 Z
 ```
 
 每个端口同时支持 HTTP 和 SOCKS，固定绑定一个节点。只提取选中的节点，不使用原配置的规则、DNS、策略组或其他入口。配置保存后不跟随订阅更新，也不受原文件改动影响。按 Enter 查看完整映射，按 `e` 导出独立 YAML，按 `c` 克隆到另一段端口。

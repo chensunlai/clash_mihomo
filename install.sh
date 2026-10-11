@@ -16,7 +16,7 @@ usage() {
   cat <<'HELP'
 安装 clashctl（Linux amd64 / arm64，无需 Go、Node 或 Python）
 
-bash install.sh [--dir DIR] [--version v1.0.1] [--repo OWNER/REPO]
+bash install.sh [--dir DIR] [--version v1.0.2] [--repo OWNER/REPO]
                 [--binary LOCAL_FILE] [--skip-core] [--no-link]
                 [--yes] [--init-bashrc|--no-init-bashrc] [--bashrc FILE]
 

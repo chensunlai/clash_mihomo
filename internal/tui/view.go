@@ -63,8 +63,11 @@ func (m Model) View() string {
 		help = "Tab 下一项  ←→ 选择  Ctrl+S 保存  Esc 取消"
 	} else if m.picker != nil {
 		help = "↑↓ 选择  输入筛选  Space 多选  Ctrl+A 全选  Enter 确认  Esc 返回"
+		if m.picker.kind == "flat-subscriptions" {
+			help = "↑↓ 选择订阅  输入筛选  Enter 查看节点  Esc 返回"
+		}
 	} else if m.wizard != nil {
-		help = "a 添加配置文件  Backspace 移除最后一组  Enter 创建  Esc 取消"
+		help = "a 选择订阅  l 导入文件  Backspace 移除最后一组  Enter 创建  Esc 取消"
 	}
 	root := lipgloss.NewStyle().Background(lipgloss.Color("#0B1220")).Foreground(lipgloss.Color("#CBD5E1")).Padding(1, 2).Width(width)
 	if m.confirm != "" || m.form != nil || m.picker != nil || m.logs != nil || m.wizard != nil {
@@ -218,15 +221,19 @@ func (m Model) wizardView(width int) string {
 	lines := []string{titleStyle.Render("固定平铺 · " + clean(w.options.Name)), "", fmt.Sprintf("监听 %s · 起始端口 %d · %s", w.options.Bind, w.options.Port, w.options.Backend), ""}
 	port := w.options.Port
 	for _, selection := range w.selections {
-		lines = append(lines, lipgloss.NewStyle().Foreground(purple).Render(clean(filepath.Base(selection.Path))))
+		label := w.labels[selection.Path]
+		if label == "" || label == "本地文件" {
+			label = filepath.Base(selection.Path)
+		}
+		lines = append(lines, lipgloss.NewStyle().Foreground(purple).Render(clean(label)))
 		for _, name := range selection.Names {
 			lines = append(lines, fmt.Sprintf("  %d → %s", port, clean(name)))
 			port++
 		}
 	}
 	if len(w.selections) == 0 {
-		lines = append(lines, "尚未选择节点。按 a 添加配置文件。")
+		lines = append(lines, "尚未选择节点。按 a 从已有订阅中选择。")
 	}
-	lines = append(lines, "", dimStyle.Render("a 继续添加文件 · Enter 创建 · Backspace 移除最后一组 · Esc 取消"))
+	lines = append(lines, "", dimStyle.Render("a 继续选择订阅 · l 导入文件 · Enter 创建 · Backspace 移除最后一组 · Esc 取消"))
 	return panelStyle.Padding(0, 2).Width(min(82, width-6)).Render(lipgloss.NewStyle().MaxHeight(max(6, m.height-11)).Render(strings.Join(lines, "\n")))
 }

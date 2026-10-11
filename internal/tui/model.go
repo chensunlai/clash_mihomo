@@ -74,6 +74,7 @@ type picker struct {
 type flatWizard struct {
 	options    manager.CreateOptions
 	selections []manager.Selection
+	labels     map[string]string
 }
 type Model struct {
 	manager     *manager.Manager
@@ -202,6 +203,17 @@ func (m *Model) subscriptionField(current string) (field, error) {
 	}
 	return choiceField("订阅", labels, ids, current), nil
 }
+func (m *Model) openFlatSubscriptions() {
+	items := []pickItem{}
+	for _, subscription := range m.status.Subscriptions {
+		items = append(items, pickItem{subscription.Name, subscription.ID})
+	}
+	if len(items) == 0 {
+		m.message = "请先添加订阅；也可按 l 导入本地 YAML 文件"
+		return
+	}
+	m.openPicker("flat-subscriptions", "选择节点来源订阅 · Enter 查看节点", "", items)
+}
 func (m *Model) createForm(clone bool) {
 	name, target, backend, bind, kind := "", "", "nohup", "127.0.0.1", "create"
 	if clone {
@@ -312,7 +324,7 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.openPicker("nodes", "选择节点 · Enter 切换 / Ctrl+T 测速", value.target, items)
 			m.picker.group = value.group
 		case localResult:
-			if m.wizard == nil {
+			if m.wizard == nil || value.wizard != m.wizard {
 				return m, m.refresh()
 			}
 			items := []pickItem{}
@@ -321,8 +333,16 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				typ, _ := node["type"].(string)
 				items = append(items, pickItem{name + "  ·  " + typ, name})
 			}
-			m.openPicker("flat-nodes", "选择固定节点 · Space 多选 / Ctrl+A 全选 / Enter 确认", "", items)
+			m.openPicker("flat-nodes", value.label+" · Space 多选 / Ctrl+A 全选 / Enter 确认", "", items)
 			m.picker.path = value.path
+			m.wizard.labels[value.path] = value.label
+			for _, selection := range m.wizard.selections {
+				if selection.Path == value.path {
+					for _, name := range selection.Names {
+						m.picker.selected[name] = true
+					}
+				}
+			}
 		case logResult:
 			view := viewport.New(max(20, m.width-12), max(5, m.height-14))
 			view.SetContent(clean(value.content))
@@ -489,9 +509,24 @@ type nodesResult struct {
 	nodes   []string
 }
 type localResult struct {
-	path  string
-	nodes []manager.Node
+	path   string
+	label  string
+	nodes  []manager.Node
+	wizard *flatWizard
 }
+
+func (m Model) loadFlatNodes(path, label string) (tea.Model, tea.Cmd) {
+	wizard := m.wizard
+	return m.launch("读取 "+label+" 的节点", false, func() (any, error) {
+		path, err := manager.ExpandPath(path)
+		if err != nil {
+			return nil, err
+		}
+		nodes, err := manager.LocalNodes(path)
+		return localResult{path: path, label: label, nodes: nodes, wizard: wizard}, err
+	})
+}
+
 type logResult struct{ content string }
 type delayResult struct {
 	node  string
@@ -602,13 +637,14 @@ func (m Model) submitForm() (tea.Model, tea.Cmd) {
 		if port == 0 {
 			return fail(fmt.Errorf("平铺需要指定起始端口"))
 		}
-		m.wizard = &flatWizard{options: manager.CreateOptions{Name: values[0], Port: port, Bind: values[2], Backend: values[3]}}
-		m.openForm("flat-file", "添加配置文件 · 不会联网拉取", "", newField("本地 YAML 文件路径", ""))
+		m.wizard = &flatWizard{options: manager.CreateOptions{Name: values[0], Port: port, Bind: values[2], Backend: values[3]}, labels: map[string]string{}}
+		m.form = nil
+		m.openFlatSubscriptions()
 		return m, nil
 	case "flat-file":
 		path := values[0]
 		m.form = nil
-		return m.launch("读取本地节点", false, func() (any, error) { nodes, err := manager.LocalNodes(path); return localResult{path, nodes}, err })
+		return m.loadFlatNodes(path, "本地文件")
 	case "backend":
 		old, err := m.manager.Instance(f.target)
 		if err != nil {
@@ -673,6 +709,9 @@ func (m Model) handlePicker(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		selected := items[p.cursor]
 		switch p.kind {
+		case "flat-subscriptions":
+			m.picker = nil
+			return m.loadFlatNodes(m.manager.Store.SubscriptionPath(selected.value), selected.label)
 		case "groups":
 			m.picker = nil
 			return m.launch("读取节点", false, func() (any, error) {
@@ -695,9 +734,19 @@ func (m Model) handlePicker(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.failed = true
 				return m, nil
 			}
-			m.wizard.selections = append(m.wizard.selections, manager.Selection{Path: p.path, Names: names})
+			replaced := false
+			for index, selection := range m.wizard.selections {
+				if selection.Path == p.path {
+					m.wizard.selections[index].Names = names
+					replaced = true
+					break
+				}
+			}
+			if !replaced {
+				m.wizard.selections = append(m.wizard.selections, manager.Selection{Path: p.path, Names: names})
+			}
 			m.picker = nil
-			m.message = "节点已加入 · a 添加文件，Enter 创建平铺实例"
+			m.message = "节点已加入 · a 继续选择订阅，Enter 创建平铺实例"
 			return m, nil
 		}
 	}
@@ -711,14 +760,16 @@ func (m Model) handleWizard(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.wizard = nil
 	case "a":
-		m.openForm("flat-file", "继续添加配置文件", "", newField("本地 YAML 文件路径", ""))
+		m.openFlatSubscriptions()
+	case "l":
+		m.openForm("flat-file", "导入本地文件（可选）", "", newField("本地 YAML 文件路径", ""))
 	case "backspace":
 		if count := len(m.wizard.selections); count > 0 {
 			m.wizard.selections = m.wizard.selections[:count-1]
 		}
 	case "enter":
 		if len(m.wizard.selections) == 0 {
-			m.message = "请先添加配置文件并选择节点"
+			m.message = "请先选择订阅中的节点"
 			return m, nil
 		}
 		wizard := m.wizard
