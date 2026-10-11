@@ -1,0 +1,6 @@
+# 跨文件同名节点会获得不同的源文件前缀。
+proxies:
+  - name: 示例 A
+    type: socks5
+    server: 192.0.2.20
+    port: 1080

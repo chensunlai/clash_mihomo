@@ -8,3 +8,6 @@
 /config/ruleset/
 /logs/*.log
 /mihomo.pid
+/dist/
+*.test
+coverage.out

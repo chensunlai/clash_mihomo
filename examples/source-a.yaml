@@ -1,0 +1,16 @@
+# 示例地址不会提供代理服务；使用前替换为自己的节点。
+proxies:
+  - name: 示例 A
+    type: socks5
+    server: 192.0.2.10
+    port: 1080
+  - name: 示例 B
+    type: http
+    server: 192.0.2.11
+    port: 8080
+proxy-groups:
+  - name: 原策略组（平铺时丢弃）
+    type: select
+    proxies: [示例 A, 示例 B]
+rules:
+  - MATCH,原策略组（平铺时丢弃）

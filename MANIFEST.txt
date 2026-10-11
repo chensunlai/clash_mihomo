@@ -1,7 +1,0 @@
-bundle: clash-meta-mihomo-linux-amd64
-core: MetaCubeX/mihomo v1.19.27 linux-amd64 (downloaded by scripts/install-core.sh on target machine)
-panels: MetaCubeXD under config/ui/metacubexd/, Yacd under config/ui/yacd/
-process: core.sh start|stop|restart|status
-init: init.sh prompts for subscription URL, updates config, and starts via nohup or systemd
-subscription: not bundled; provide via config/subscription.url, CLASH_SUB_URL, or update-config.sh <URL>
-created: 2026-07-02
