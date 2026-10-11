@@ -90,6 +90,7 @@ sudo loginctl enable-linger "$USER"
 
 ```bash
 clashctl sub add --name A --url 'https://example.com/clash.yaml'
+clashctl sub add --name B --url 'https://example.net/clash.yaml'
 clashctl new --name work --sub A --port 17890 --backend user
 clashctl clone --from work --name work-2 --port 17891
 clashctl start work
